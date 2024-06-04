@@ -1,29 +1,32 @@
 #include <NewPing.h>
 
-#define SONAR_NUM 3      // 초음파 센서의 수
-#define MAX_DISTANCE 100 // 센서의 최대 측정 거리 (cm 단위)
-#define WALL_GAP_DISTANCE 400 // 벽과의 거리 (mm 단위)
-#define WALL_GAP_DISTANCE_HALF 155 // 벽과의 절반 거리 (mm 단위)
+// 초음파 센서의 수와 최대 측정 거리, 벽과의 거리 및 벽과의 절반 거리를 정의
+#define SONAR_NUM 3
+#define MAX_DISTANCE 100
+#define WALL_GAP_DISTANCE 400
+#define WALL_GAP_DISTANCE_HALF 155
 
+// 초음파 센서의 인덱스를 정의
 #define Front 0
 #define Left  1 
 #define Right 2
 
-#define TRIG1 14 // 초음파 센서 1번의 Trig 핀 번호
-#define ECHO1 15 // 초음파 센서 1번의 Echo 핀 번호
-#define TRIG2 16 // 초음파 센서 2번의 Trig 핀 번호
-#define ECHO2 17 // 초음파 센서 2번의 Echo 핀 번호
-#define TRIG3 18 // 초음파 센서 3번의 Trig 핀 번호
-#define ECHO3 19 // 초음파 센서 3번의 Echo 핀 번호
+// 초음파 센서의 Trig와 Echo 핀 번호를 정의
+#define TRIG1 14
+#define ECHO1 15
+#define TRIG2 16
+#define ECHO2 17
+#define TRIG3 18
+#define ECHO3 19
 
-// NewPing 라이브러리로 초음파 센서를 초기화
+// NewPing 라이브러리를 사용하여 초음파 센서를 초기화
 NewPing sonar[SONAR_NUM] = {   
     NewPing(TRIG1, ECHO1, MAX_DISTANCE), 
     NewPing(TRIG2, ECHO2, MAX_DISTANCE),
     NewPing(TRIG3, ECHO3, MAX_DISTANCE)
 };
 
-// 모터 제어 핀 정의
+// 모터 제어 핀을 정의
 #define IN1 11
 #define IN2 10
 #define ENA 6
@@ -31,7 +34,7 @@ NewPing sonar[SONAR_NUM] = {
 #define IN4 8
 #define ENB 7
 
-// 초음파 센서로 측정된 거리 값
+// 초음파 센서로 측정된 거리 값을 저장하는 변수
 float front_sonar = 0.0;
 float left_sonar  = 0.0;
 float right_sonar = 0.0;
