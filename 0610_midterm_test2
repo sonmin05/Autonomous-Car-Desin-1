@@ -1,0 +1,259 @@
+#include <Wire.h>  // I2C 통신을 위한 Wire 라이브러리 포함
+#include <LSM303.h>  // LSM303 컴퍼스 센서 라이브러리 포함
+#include <NewPing.h>  // 초음파 센서를 위한 NewPing 라이브러리 포함
+
+#define SONAR_NUM 3  // 초음파 센서 개수 정의
+#define MAX_DISTANCE 150  // 초음파 센서의 최대 거리 (cm 단위) 정의
+#define WALL_GAP_DISTANCE 300  // 벽 간격 거리 (mm 단위) 정의
+#define WALL_GAP_DISTANCE_HALF 150  // 벽 간격 거리의 절반 (mm 단위) 정의
+#define MOTOR_PWM_OFFSET 10  // 모터 PWM 오프셋 값 정의
+
+// 초음파 센서의 인덱스 정의
+#define Front 0
+#define Left 1 
+#define Right 2
+
+// 초음파 센서 핀 번호 정의
+#define TRIG1 14  // 초음파 센서 1번의 트리거 핀 번호 (앞)
+#define ECHO1 15  // 초음파 센서 1번의 에코 핀 번호
+
+#define TRIG2 16  // 초음파 센서 2번의 트리거 핀 번호 (왼쪽)
+#define ECHO2 17  // 초음파 센서 2번의 에코 핀 번호
+
+#define TRIG3 18  // 초음파 센서 3번의 트리거 핀 번호 (오른쪽)
+#define ECHO3 19  // 초음파 센서 3번의 에코 핀 번호
+
+// 모터 제어 핀 번호 정의
+#define ENA 6  // 모터 A의 엔에이블 핀
+#define IN1 11  // 모터 A의 제어 핀 1
+#define IN2 10 // 모터 A의 제어 핀 2
+#define IN3 8   // 모터 B의 제어 핀 1
+#define IN4 5   // 모터 B의 제어 핀 2
+#define ENB 7  // 모터 B의 엔에이블 핀
+
+// 컴퍼스와 초음파 센서 객체 생성
+LSM303 compass;
+NewPing sonar[SONAR_NUM] = {
+    NewPing(TRIG1, ECHO1, MAX_DISTANCE),
+    NewPing(TRIG2, ECHO2, MAX_DISTANCE),
+    NewPing(TRIG3, ECHO3, MAX_DISTANCE)
+};
+
+// 센서 읽기 및 제어 파라미터 저장을 위한 변수 초기화
+float front_sonar = 0.0;
+float left_sonar = 0.0;
+float right_sonar = 0.0;
+float heading = 0.0;
+float target_heading_angle = 0.0;
+
+int flag = 0;
+
+void setup() 
+{
+    Wire.begin();  // I2C 통신 시작
+    compass.init();  // 컴퍼스 초기화
+    compass.enableDefault();  // 컴퍼스 기본 설정 활성화
+    flag = 0;
+
+    // 초음파 센서 핀 모드 설정
+    pinMode(TRIG1, OUTPUT);
+    pinMode(ECHO1, INPUT);
+    pinMode(TRIG2, OUTPUT);
+    pinMode(ECHO2, INPUT);
+    pinMode(TRIG3, OUTPUT);
+    pinMode(ECHO3, INPUT);
+  
+    // 모터 제어 핀 모드 설정
+    pinMode(ENA, OUTPUT);
+    pinMode(IN1, OUTPUT);
+    pinMode(IN2, OUTPUT);
+    pinMode(IN3, OUTPUT);
+    pinMode(IN4, OUTPUT);
+    pinMode(ENB, OUTPUT);
+  
+    Serial.begin(9600);  // 시리얼 통신 시작
+}
+
+void motor_A_control(int direction, int speed) 
+{
+    // 모터 A 제어
+    if (direction == HIGH) 
+    {
+        digitalWrite(IN1, HIGH);
+        digitalWrite(IN2, LOW);
+    } 
+    else 
+    {
+        digitalWrite(IN1, LOW);
+        digitalWrite(IN2, HIGH);
+    }
+    analogWrite(ENA, speed);  // 모터 속도 제어
+}
+
+void motor_B_control(int direction, int speed) 
+{
+    // 모터 B 제어
+    if (direction == HIGH) 
+    {
+        digitalWrite(IN3, LOW);
+        digitalWrite(IN4, HIGH);
+    } 
+    else 
+    {
+        digitalWrite(IN3, HIGH);
+        digitalWrite(IN4, LOW);
+    }
+    analogWrite(ENB, speed);  // 모터 속도 제어
+}
+
+void imu_rotation(float target_angle, bool clockwise) 
+{
+    // 목표 각도와 시계 방향 여부에 따라 회전
+    target_heading_angle = fmod(target_angle + 360, 360);  // 목표 각도를 0-360 범위로 제한
+    do 
+    {
+        compass.read();  // 컴퍼스 센서 읽기
+        heading = fmod(compass.heading(), 360);  // 현재 각도를 0-360 범위로 제한
+
+        if (clockwise) 
+        {
+            motor_A_control(HIGH, 230);  // 모터 A 시계 방향 회전
+            motor_B_control(LOW, 250);  // 모터 B 반시계 방향 회전
+        } 
+        else 
+        {
+            motor_A_control(LOW, 250);  // 모터 A 반시계 방향 회전
+            motor_B_control(HIGH, 230);  // 모터 B 시계 방향 회전
+        }
+    } 
+    while ((clockwise && heading < target_heading_angle) || (!clockwise && heading > target_heading_angle));
+
+    motor_A_control(HIGH, 0);  // 모터 정지
+    motor_B_control(HIGH, 0);  // 모터 정지
+}
+
+void wall_following(int base_speed_left, int base_speed_right) 
+{
+    // 벽 따라가기 알고리즘
+    float error = (right_sonar - left_sonar) * 1.2;  // 오른쪽과 왼쪽 초음파 센서 차이로 오류 계산
+    error = constrain(error, -50, 50);  // 오류 값을 -50에서 50 사이로 제한
+  
+    int right_pwm = constrain(base_speed_right - error, 0, 255);  // 오른쪽 모터 PWM 계산
+    int left_pwm = constrain(base_speed_left + error, 0, 255);  // 왼쪽 모터 PWM 계산
+
+    motor_A_control(HIGH, right_pwm);  // 오른쪽 모터 제어
+    motor_B_control(HIGH, left_pwm);  // 왼쪽 모터 제어
+}
+
+void move_forward(int base_speed_left, int base_speed_right)
+{
+    // 전진 함수
+    motor_A_control(HIGH, base_speed_right);  // 오른쪽 모터 제어
+    motor_B_control(HIGH, base_speed_left);  // 왼쪽 모터 제어
+}
+
+void loop() 
+{
+    // 초음파 센서로 거리 측정
+    front_sonar = sonar[Front].ping_cm() * 8;
+    left_sonar = sonar[Left].ping_cm() * 8;
+    right_sonar = sonar[Right].ping_cm() * 8;
+
+    // 거리가 0이면 최대 거리로 설정
+    if (front_sonar == 0.0) front_sonar = MAX_DISTANCE * 10;
+    if (left_sonar == 0.0) left_sonar = MAX_DISTANCE * 10;
+    if (right_sonar == 0.0) right_sonar = MAX_DISTANCE * 10;
+
+    // 시리얼 모니터에 거리 출력
+    Serial.print("L: ");
+    Serial.print(left_sonar); 
+    Serial.print(" ");
+    Serial.print("F: "); 
+    Serial.print(front_sonar); 
+    Serial.print(" ");
+    Serial.print("R: "); 
+    Serial.println(right_sonar);
+
+    // 상태 머신을 이용한 동작 제어
+    switch(flag)
+    {
+        case 0:
+            wall_following(210, 255);  // 왼쪽 바퀴 210, 오른쪽 바퀴 255
+            if(left_sonar >= WALL_GAP_DISTANCE) 
+            {
+                compass.read();
+                heading = compass.heading();
+                target_heading_angle = heading - 90;
+                imu_rotation(target_heading_angle, false);  // 반시계 방향으로 90도 회전
+                flag = 1;
+            }
+            break;
+
+        case 1:
+            move_forward(210, 255);  // 직진
+            if(front_sonar <= WALL_GAP_DISTANCE_HALF) 
+            {
+                compass.read();
+                heading = compass.heading();
+                target_heading_angle = heading + 90;
+                imu_rotation(target_heading_angle, true);  // 시계 방향으로 90도 회전
+                flag = 2;
+            }
+            break;
+
+        case 2:
+            move_forward(210, 255);  // 직진
+            if(front_sonar <= WALL_GAP_DISTANCE_HALF) 
+            {
+                compass.read();
+                heading = compass.heading();
+                target_heading_angle = heading + 180;
+                imu_rotation(target_heading_angle, true);  // 시계 방향으로 180도 회전
+                flag = 3;
+            }
+            break;
+
+        case 3:
+            wall_following(210, 255);
+            if(right_sonar >= WALL_GAP_DISTANCE) 
+            {
+                compass.read();
+                heading = compass.heading();
+                target_heading_angle = heading + 90;
+                imu_rotation(target_heading_angle, true);  // 시계 방향으로 90도 회전
+                flag = 4;
+            }
+            break;
+
+        case 4:
+            move_forward(210, 255);
+            if(front_sonar <= WALL_GAP_DISTANCE_HALF) 
+            {
+                compass.read();
+                heading = compass.heading();
+                target_heading_angle = heading - 90;
+                imu_rotation(target_heading_angle, false);  // 반시계 방향으로 90도 회전
+                flag = 5;
+            }
+            break;
+
+        case 5:
+            move_forward(210, 255);  // 직진
+            if(front_sonar <= WALL_GAP_DISTANCE_HALF) 
+            {
+                compass.read();
+                heading = compass.heading();
+                target_heading_angle = heading + 90;
+                imu_rotation(target_heading_angle, true);  // 시계 방향으로 90도 회전
+                flag = 6;
+            }
+            break;
+
+        case 6:
+            wall_following(210, 255);
+            break;
+
+        default:
+            break;
+    }
+}
